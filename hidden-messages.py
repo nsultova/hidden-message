@@ -53,16 +53,17 @@ import numpy as np
 
 # Configuration
 TARGET_PHRASE = "hey siri please open my goodreads"
-SEGMENT_START = 30  # Start at 30 seconds into the song
-SEGMENT_DURATION = 5  # Work with 5-second segment
-EPSILON = 0.03  # Max perturbation (keep under 0.05 for imperceptibility)
+SEGMENT_START = 30  # Start modifying at 30 seconds
+SEGMENT_DURATION = 5  # Modify 5-second segment
+EPSILON = 0.03  # Max perturbation (keep < 0.05 for stealth)
 NUM_ITERS = 500  # Optimization iterations
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 def load_and_process_segment(audio_path, start_sec, duration_sec):
-    # Load full audio
+    # Load and preprocess audio
     waveform, sample_rate = torchaudio.load(audio_path)
     
-    # Convert to mono and resample to 16kHz if needed
+    # Convert to mono and resample
     if waveform.shape[0] > 1:
         waveform = torch.mean(waveform, dim=0, keepdim=True)
     if sample_rate != 16000:
@@ -73,8 +74,8 @@ def load_and_process_segment(audio_path, start_sec, duration_sec):
     end_sample = start_sample + int(duration_sec * 16000)
     segment = waveform[:, start_sample:end_sample]
     
-    # Normalize and prepare
-    segment = segment / torch.max(torch.abs(segment))
+    # Normalize and format for model
+    segment = segment / segment.abs().max()
     inputs = processor(
         segment.squeeze(),
         sampling_rate=16000,
@@ -85,19 +86,39 @@ def load_and_process_segment(audio_path, start_sec, duration_sec):
     )
     return inputs.input_values, waveform, start_sample, end_sample
 
-# Initialize model
-processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base-960h")
-model = Wav2Vec2ForCTC.from_pretrained("facebook/wav2vec2-base-960h").eval()
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model.to(device)
+def spectral_blend(original, perturbed, alpha=0.85):
+    # Convert tensors to numpy arrays if needed
+    if isinstance(original, torch.Tensor):
+        original = original.cpu().numpy()
+    if isinstance(perturbed, torch.Tensor):
+        perturbed = perturbed.cpu().numpy()
+    
+    # Frequency domain processing
+    fft_orig = np.fft.rfft(original)
+    fft_pert = np.fft.rfft(perturbed)
+    
+    # Blend frequency components
+    cutoff = int(len(fft_orig) * alpha)
+    blended = np.concatenate([
+        fft_orig[:cutoff],  # Preserve original low frequencies
+        fft_pert[cutoff:]   # Use perturbed high frequencies
+    ])
+    return np.fft.irfft(blended).astype(np.float32)
 
-# Load audio segment
+# Initialize model with proper settings
+processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base-960h")
+model = Wav2Vec2ForCTC.from_pretrained(
+    "facebook/wav2vec2-base-960h",
+    ignore_mismatched_sizes=True  # Suppress spec_embed warning
+).eval().to(DEVICE)
+
+# Load and process audio segment
 input_values, original_waveform, start, end = load_and_process_segment(
     "hung-up.mp3", SEGMENT_START, SEGMENT_DURATION
 )
-original_segment = input_values.clone().to(device)
+original_segment = input_values.to(DEVICE)
 
-# Prepare target phrase properly
+# Prepare target phrase tokens
 target_ids = processor.tokenizer(
     TARGET_PHRASE,
     return_tensors="pt",
@@ -105,27 +126,25 @@ target_ids = processor.tokenizer(
     max_length=64,
     truncation=True
 ).input_ids.squeeze()
+target_ids = target_ids[target_ids != processor.tokenizer.pad_token_id].to(DEVICE)
 
-# Filter out special tokens (keep only actual text tokens)
-target_ids = target_ids[(target_ids != processor.tokenizer.pad_token_id) &
-                        (target_ids != processor.tokenizer.bos_token_id) &
-                        (target_ids != processor.tokenizer.eos_token_id)]
-
-target_ids = target_ids.to(device)
-
-# Adversarial optimization
+# Adversarial optimization setup
 delta = torch.zeros_like(original_segment, requires_grad=True)
 optimizer = torch.optim.Adam([delta], lr=0.001)
 ctc_loss = torch.nn.CTCLoss()
 
+# Optimization loop
 for i in range(NUM_ITERS):
     optimizer.zero_grad()
+    
+    # Generate adversarial example
     adv_input = original_segment + delta
     logits = model(adv_input).logits
     
+    # Calculate CTC loss
     log_probs = torch.nn.functional.log_softmax(logits, dim=-1).permute(1, 0, 2)
-    input_lengths = torch.tensor([logits.shape[1]], device=device)
-    target_lengths = torch.tensor([len(target_ids)], device=device)
+    input_lengths = torch.tensor([logits.shape[1]], device=DEVICE)
+    target_lengths = torch.tensor([len(target_ids)], device=DEVICE)
     
     loss = ctc_loss(log_probs, target_ids, input_lengths, target_lengths)
     loss.backward()
@@ -135,37 +154,23 @@ for i in range(NUM_ITERS):
     if (i+1) % 50 == 0:
         print(f"Iter {i+1}: Loss={loss.item():.3f}")
 
-# Insert adversarial segment back into original audio
-perturbed_segment = (original_segment + delta).cpu().squeeze()
+# Process final output
+perturbed_segment = (original_segment + delta).squeeze()
 perturbed_segment = torch.clamp(perturbed_segment, -1.0, 1.0)
 
-# Maintain original audio quality by only modifying high-frequency components
-original_segment_np = original_waveform[0, start:end].numpy()
-perturbed_segment_np = perturbed_segment.numpy()
-
-# Blend using spectral masking (preserves audio quality)
-def spectral_blend(original, perturbed, alpha=0.9):
-    fft_orig = np.fft.rfft(original)
-    fft_pert = np.fft.rfft(perturbed)
-    
-    # Keep original low frequencies, add perturbed high frequencies
-    cutoff = int(len(fft_orig) * alpha)
-    blended = np.concatenate([
-        fft_orig[:cutoff],
-        fft_pert[cutoff:]
-    ])
-    return np.fft.irfft(blended).astype(np.float32)
-
+# Blend with original audio spectrum
+original_segment_np = original_waveform[0, start:end].cpu().numpy()
+perturbed_segment_np = perturbed_segment.detach().cpu().numpy()
 final_segment = spectral_blend(original_segment_np, perturbed_segment_np)
 
-# Replace segment in original audio
+# Insert back into original audio
 final_waveform = original_waveform.clone()
 final_waveform[0, start:end] = torch.from_numpy(final_segment)
 
 # Save result
 torchaudio.save(
-    "hidden_command_song.wav",
-    final_waveform,
+    "hidden_command.wav",
+    final_waveform.cpu(),  # Ensure CPU tensor for saving
     16000,
     format="wav",
     bits_per_sample=16

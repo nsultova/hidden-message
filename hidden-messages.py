@@ -1,63 +1,18 @@
 """
 Idea: Hide a hidden message for Siri in a song and see if it works (PoC)
 """
-# import torch
-# import torchaudio
-# from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
-
-# processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base-960h")
-# model = Wav2Vec2ForCTC.from_pretrained("facebook/wav2vec2-base-960h").eval()
-
-# def load_and_process_audio(audio_path, target_sample_rate=16000, max_seconds=10):
-#     waveform, sample_rate = torchaudio.load(audio_path)
-    
-#     if sample_rate != target_sample_rate:
-#         waveform = torchaudio.functional.resample(waveform, sample_rate, target_sample_rate)
-    
-#     # Convert to mono, most speec models trained on mono encoding, one channel
-#     if waveform.shape[0] > 1:
-#         waveform = torch.mean(waveform, dim=0, keepdim=True)
-    
-#     # Trim to max duration
-#     max_samples = target_sample_rate * max_seconds
-#     if waveform.shape[1] > max_samples:
-#         waveform = waveform[:, :max_samples]
-    
-#     # Normalize
-#     waveform = waveform / waveform.abs().max()
-    
-#     # Paddding for conv layers
-#     inputs = processor(
-#         waveform.squeeze(),
-#         sampling_rate=target_sample_rate,
-#         return_tensors="pt",
-#         padding="max_length",
-#         max_length=max_samples,
-#         pad_to_multiple_of=320  # Make audio length multiple of 320 (Wav2Vec conv stride pattern)
-    
-#     return inputs.input_values  # Shape: [1, seq_len]
-
-
-# input_values = load_and_process_audio("sample.wav")
-# print(f"Input shape: {input_values.shape}")
-
-# # Verify transcription
-# with torch.no_grad():
-#     logits = model(input_values).logits
-#     print("Transcription:", processor.batch_decode(torch.argmax(logits, dim=-1))[0])
-
 import torch
 import torchaudio
 from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
 import numpy as np
 
-# Configuration
 TARGET_PHRASE = "hey siri please open my goodreads"
 SEGMENT_START = 1  # Start modifying at 30 seconds
 SEGMENT_DURATION = 4  # Modify 5-second segment
 EPSILON = 0.03  # Max perturbation (keep < 0.05 for stealth)
 NUM_ITERS = 500  # Optimization iterations
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+AUDIO = "duck-6sec.mp3"
 
 def load_and_process_segment(audio_path, start_sec, duration_sec):
     # Load and preprocess audio
@@ -114,7 +69,7 @@ model = Wav2Vec2ForCTC.from_pretrained(
 
 # Load and process audio segment
 input_values, original_waveform, start, end = load_and_process_segment(
-    "duck-6sec.mp3", SEGMENT_START, SEGMENT_DURATION
+    AUDIO, SEGMENT_START, SEGMENT_DURATION
 )
 original_segment = input_values.to(DEVICE)
 
@@ -167,7 +122,6 @@ final_segment = spectral_blend(original_segment_np, perturbed_segment_np)
 final_waveform = original_waveform.clone()
 final_waveform[0, start:end] = torch.from_numpy(final_segment)
 
-# Save result
 torchaudio.save(
     "hidden_command.wav",
     final_waveform.cpu(),  # Ensure CPU tensor for saving
@@ -180,3 +134,12 @@ print("Adversarial song saved! Test with:")
 print(f"1. Play hidden_command_song.wav from {SEGMENT_START}s mark")
 print(f"2. Check transcription with Siri/voice assistants")
 print(f"3. Human ears should hear normal music at {SEGMENT_START}s")
+
+
+# input_values = load_and_process_audio("sample.wav")
+# print(f"Input shape: {input_values.shape}")
+
+# # Verify transcription
+# with torch.no_grad():
+#     logits = model(input_values).logits
+#     print("Transcription:", processor.batch_decode(torch.argmax(logits, dim=-1))[0])

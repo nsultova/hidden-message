@@ -38,7 +38,8 @@ python hidden-messages.py
 
 #### Current state:
 I does train and output hidden_command.wav but Siri stays unimpressed.
-#TODO 
+
+#### TODO 
 * Try on an easier/different target, assuming Siri has a bunch of additional measurement built in to avoid tampering.
 * Increase trainingtime
 

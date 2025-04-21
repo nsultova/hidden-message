@@ -53,8 +53,8 @@ import numpy as np
 
 # Configuration
 TARGET_PHRASE = "hey siri please open my goodreads"
-SEGMENT_START = 30  # Start modifying at 30 seconds
-SEGMENT_DURATION = 5  # Modify 5-second segment
+SEGMENT_START = 1  # Start modifying at 30 seconds
+SEGMENT_DURATION = 4  # Modify 5-second segment
 EPSILON = 0.03  # Max perturbation (keep < 0.05 for stealth)
 NUM_ITERS = 500  # Optimization iterations
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -114,7 +114,7 @@ model = Wav2Vec2ForCTC.from_pretrained(
 
 # Load and process audio segment
 input_values, original_waveform, start, end = load_and_process_segment(
-    "hung-up.mp3", SEGMENT_START, SEGMENT_DURATION
+    "duck-6sec.mp3", SEGMENT_START, SEGMENT_DURATION
 )
 original_segment = input_values.to(DEVICE)
 

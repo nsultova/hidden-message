@@ -1,0 +1,63 @@
+# Python-related files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.ipynb_checkpoints
+
+# Virtual environments
+venv/
+ENV/
+env/
+.env/
+
+*.wav
+*.mp3
+temp.wav  # Temporary audio files
+
+# Large model files
+*.safetensors
+*.bin
+*.h5
+
+# Logs and temporary files
+logs/
+*.log
+*.tmp
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*~
+
+# Data directories
+data/
+datasets/
+results/
+outputs/
+
+# Keep README and configuration files in the repository
+!README.md
+!config.json
+!tokenizer_config.json
+!feature_extractor_config.json
+!special_tokens_map.json
+!vocab.json
+!preprocessor_config.json

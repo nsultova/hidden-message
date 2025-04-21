@@ -51,8 +51,8 @@ You can modify the following parameters in the script:
 - `SEGMENT_START`: When to start embedding the command (seconds)
 - `SEGMENT_DURATION`: Length of the modified segment (seconds)
 - `EPSILON`: Maximum allowed perturbation (lower = more stealthy)
+- `NUM_ITERS`: Optimization iterations
 - `AUDIO`: Audiofile to be modified
-- `PHRASE`: Phrase to be encoded
 
 ## Models 
 
@@ -74,4 +74,23 @@ The original model can be found under https://github.com/pytorch/fairseq/tree/ma
 
 ## Notes
 
+##### CTC loss
+[CTC Loss] (https://pytorch.org/docs/stable/generated/torch.nn.CTCLoss.html)
 
+CTC loss was designed to align sequences without needing explicit alignment information.
+"Reversing" normal use of CTC loss. Instead of the model, AUDIO gets optimized, steering it toward being recognized as TARGET_PHRASE
+
+##### Constrained perturbation
+Keep EPSILON small to limit perturbation and keep things (hopefully) indetectible to a human ear
+
+##### Spectral_blend
+
+Using perturbated audio directly might sound too sus, thus:
+* Convert original and perturbed audio to the frequency domain
+* Keep low-frequency components (85%) from the original audio
+* Take only high-frequency components from the perturbed audio
+
+Idea:
+Humans are more sensitive to changes in low frequencies, if sth seems off, we'll rather perceive it in that range.
+Voice recognition systems grasp the full range of frequencies --> sneak in the bits into the high frequencies whilst preserving the low ones.
+The tampered audio should sound normal for humans but still be able to trigger a voice assistant.

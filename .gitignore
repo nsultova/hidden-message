@@ -29,7 +29,7 @@ env/
 .env/
 
 *.wav
-*.mp3
+#*.mp3
 temp.wav  # Temporary audio files
 
 # Large model files
